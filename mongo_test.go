@@ -79,8 +79,8 @@ func TestFindOneAndIncrement(t *testing.T) {
 				}
 			}
 
-			e := repo.DeleteOne(ctx, "name", td.Name)
-			if e != nil {
+			count, e := repo.DeleteOne(ctx, "name", td.Name)
+			if e != nil || count != 1 {
 				t.Errorf("error deleting test data: %v", e)
 			}
 		} else {
