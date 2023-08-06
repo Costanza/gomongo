@@ -16,8 +16,6 @@ type Repository[T any] struct {
 	collection string
 }
 
-type RepositoryCallback[T any] func(ctx context.Context, n *T) (e error)
-
 func NewRepository[T any](ctx context.Context, server string, user string, password string, port int, dbName string, coll string) (r *Repository[T], e error) {
 	r = new(Repository[T])
 
@@ -70,7 +68,7 @@ func (r Repository[T]) GetByDateRange(ctx context.Context, key string, start tim
 	return
 }
 
-func (r Repository[T]) Iterate(ctx context.Context, cb RepositoryCallback[T]) (e error) {
+func (r Repository[T]) Iterate(ctx context.Context, cb func(ctx context.Context, n *T) (e error)) (e error) {
 	col := r.dbClient.Collection(r.dbName, r.collection)
 
 	cursor, err := col.Find(ctx, bson.D{})
