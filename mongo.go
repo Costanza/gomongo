@@ -58,8 +58,18 @@ func (m *MongoDB) Collection(dbName string, collectionName string) (col *mongo.C
 	return
 }
 
+func (m *MongoDB) ConnectionString() (s string) {
+	return m.connStr
+}
+
 func (m *MongoDB) Client() (client *mongo.Client) {
 	client = m.client
+
+	return
+}
+
+func (m *MongoDB) Disconnect(ctx context.Context) (e error) {
+	e = m.client.Disconnect(ctx)
 
 	return
 }
