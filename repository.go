@@ -150,14 +150,26 @@ func (r Repository[T]) Save(ctx context.Context, entity *T, key string, value in
 	return
 }
 
-func (r Repository[T]) DeleteOne(ctx context.Context, key string, value interface{}) (e error) {
+func (r Repository[T]) DeleteOne(ctx context.Context, key string, value interface{}) (count int64, e error) {
 	col := r.dbClient.Collection(r.dbName, r.collection)
 
 	query := bson.M{
 		key: value,
 	}
 
-	_, e = col.DeleteOne(ctx, query)
+	result, e := col.DeleteOne(ctx, query)
 
-	return
+	return result.DeletedCount, e
+}
+
+func (r Repository[T]) DeleteMany(ctx context.Context, key string, value interface{}) (count int64, e error) {
+	col := r.dbClient.Collection(r.dbName, r.collection)
+
+	query := bson.M{
+		key: value,
+	}
+
+	result, e := col.DeleteMany(ctx, query)
+
+	return result.DeletedCount, e
 }
