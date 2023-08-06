@@ -68,6 +68,48 @@ func (r Repository[T]) GetByDateRange(ctx context.Context, key string, start tim
 	return
 }
 
+func (r Repository[T]) FindOneAndIncrementField(ctx context.Context, key string, value string, updateKey string, increment int64) (entity *T, e error) {
+	col := r.dbClient.Collection(r.dbName, r.collection)
+
+	filter := bson.D{
+		primitive.E{Key: key, Value: value},
+	}
+
+	update := bson.D{
+		primitive.E{Key: "$inc", Value: bson.D{
+			primitive.E{Key: updateKey, Value: increment},
+		}},
+	}
+
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+	opts.SetUpsert(true)
+
+	e = col.FindOneAndUpdate(ctx, filter, update, opts).Decode(&entity)
+
+	return
+}
+
+func (r Repository[T]) FindOneAndUpdateField(ctx context.Context, key string, value string, updateKey string, updateValue interface{}) (entity *T, e error) {
+	col := r.dbClient.Collection(r.dbName, r.collection)
+
+	filter := bson.D{
+		primitive.E{Key: key, Value: value},
+	}
+
+	update := bson.D{
+		primitive.E{Key: "$set", Value: bson.D{
+			primitive.E{Key: updateKey, Value: updateValue},
+		}},
+	}
+
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+	opts.SetUpsert(true)
+
+	e = col.FindOneAndUpdate(ctx, filter, update, opts).Decode(&entity)
+
+	return
+}
+
 func (r Repository[T]) Iterate(ctx context.Context, cb func(ctx context.Context, n *T) (e error)) (e error) {
 	col := r.dbClient.Collection(r.dbName, r.collection)
 
@@ -104,4 +146,28 @@ func (r Repository[T]) Save(ctx context.Context, entity *T, key string, value in
 	_, e = col.ReplaceOne(ctx, query, *entity, opts)
 
 	return
+}
+
+func (r Repository[T]) DeleteOne(ctx context.Context, key string, value interface{}) (count int64, e error) {
+	col := r.dbClient.Collection(r.dbName, r.collection)
+
+	query := bson.M{
+		key: value,
+	}
+
+	result, e := col.DeleteOne(ctx, query)
+
+	return result.DeletedCount, e
+}
+
+func (r Repository[T]) DeleteMany(ctx context.Context, key string, value interface{}) (count int64, e error) {
+	col := r.dbClient.Collection(r.dbName, r.collection)
+
+	query := bson.M{
+		key: value,
+	}
+
+	result, e := col.DeleteMany(ctx, query)
+
+	return result.DeletedCount, e
 }
