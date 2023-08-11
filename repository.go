@@ -7,6 +7,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -61,6 +62,19 @@ func (r Repository[T]) GetByDateRange(ctx context.Context, key string, start tim
 	}
 
 	cursor, e := col.Find(ctx, filter)
+	if e == nil {
+		e = cursor.All(ctx, &entities)
+	}
+
+	return
+}
+
+func (r Repository[T]) Search(ctx context.Context, term string) (entities []T, e error) {
+	col := r.dbClient.Collection(r.dbName, r.collection)
+
+	filter := bson.D{{"$text", bson.D{{"$search", term}}}}
+	cursor, e := col.Find(ctx, filter)
+
 	if e == nil {
 		e = cursor.All(ctx, &entities)
 	}
@@ -170,4 +184,18 @@ func (r Repository[T]) DeleteMany(ctx context.Context, key string, value interfa
 	result, e := col.DeleteMany(ctx, query)
 
 	return result.DeletedCount, e
+}
+
+func (r Repository[T]) CreateIndex(ctx context.Context, name string, field string, kind string, unique bool) (idxName string, e error) {
+	col := r.dbClient.Collection(r.dbName, r.collection)
+
+	model := mongo.IndexModel{
+
+		Keys:    bson.D{{Key: field, Value: kind}},
+		Options: options.Index().SetName(name).SetUnique(unique),
+	}
+
+	idxName, e = col.Indexes().CreateOne(ctx, model)
+
+	return
 }
