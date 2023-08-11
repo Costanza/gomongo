@@ -11,6 +11,13 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+type SortDirection int
+
+const (
+	Ascending  SortDirection = 1
+	Descending SortDirection = -1
+)
+
 type Repository[T any] struct {
 	dbClient   *MongoDB
 	dbName     string
@@ -39,6 +46,26 @@ func (r Repository[T]) GetByID(ctx context.Context, ID primitive.ObjectID) (enti
 	return
 }
 
+func (r Repository[T]) Get(ctx context.Context, key string, value interface{}, sortField string, sortDir SortDirection) (entities []T, e error) {
+	col := r.dbClient.Collection(r.dbName, r.collection)
+	opts := options.Find()
+	if sortField != "" {
+		opts.SetSort(bson.D{{sortField, sortDir}})
+	}
+
+	filter := bson.D{
+		primitive.E{Key: key, Value: value},
+	}
+
+	cursor, e := col.Find(ctx, filter, opts)
+
+	if e == nil {
+		e = cursor.All(ctx, &entities)
+	}
+
+	return
+}
+
 func (r Repository[T]) GetOne(ctx context.Context, key string, value interface{}) (entity *T, e error) {
 	col := r.dbClient.Collection(r.dbName, r.collection)
 
@@ -51,8 +78,9 @@ func (r Repository[T]) GetOne(ctx context.Context, key string, value interface{}
 	return
 }
 
-func (r Repository[T]) GetByDateRange(ctx context.Context, key string, start time.Time, end time.Time) (entities []T, e error) {
+func (r Repository[T]) GetByDateRange(ctx context.Context, key string, start time.Time, end time.Time, sortDir SortDirection) (entities []T, e error) {
 	col := r.dbClient.Collection(r.dbName, r.collection)
+	opts := options.Find().SetSort(bson.D{{key, sortDir}})
 
 	filter := bson.M{
 		key: bson.M{
@@ -61,7 +89,7 @@ func (r Repository[T]) GetByDateRange(ctx context.Context, key string, start tim
 		},
 	}
 
-	cursor, e := col.Find(ctx, filter)
+	cursor, e := col.Find(ctx, filter, opts)
 	if e == nil {
 		e = cursor.All(ctx, &entities)
 	}
@@ -71,9 +99,10 @@ func (r Repository[T]) GetByDateRange(ctx context.Context, key string, start tim
 
 func (r Repository[T]) Search(ctx context.Context, term string) (entities []T, e error) {
 	col := r.dbClient.Collection(r.dbName, r.collection)
+	opts := options.Find().SetSort(bson.D{{"score", bson.D{{"$meta", "textScore"}}}})
 
 	filter := bson.D{{"$text", bson.D{{"$search", term}}}}
-	cursor, e := col.Find(ctx, filter)
+	cursor, e := col.Find(ctx, filter, opts)
 
 	if e == nil {
 		e = cursor.All(ctx, &entities)
@@ -146,6 +175,22 @@ func (r Repository[T]) Iterate(ctx context.Context, cb func(ctx context.Context,
 	}
 
 	return
+}
+
+func (r Repository[T]) InsertOne(ctx context.Context, entity T) (id interface{}, e error) {
+	col := r.dbClient.Collection(r.dbName, r.collection)
+
+	result, e := col.InsertOne(ctx, entity)
+
+	return result.InsertedID, e
+}
+
+func (r Repository[T]) InsertMany(ctx context.Context, entities []interface{}) (ids []interface{}, e error) {
+	col := r.dbClient.Collection(r.dbName, r.collection)
+
+	result, e := col.InsertMany(ctx, entities)
+
+	return result.InsertedIDs, e
 }
 
 func (r Repository[T]) Save(ctx context.Context, entity *T, key string, value interface{}) (e error) {
