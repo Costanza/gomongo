@@ -12,14 +12,16 @@ import (
 // MongoDB is a wrapper around a mongo connection
 type MongoDB struct {
 	connStr string
+	dbName  string
 	client  *mongo.Client
 }
 
 // NewMongoDB creates a new Mongo clent
-func NewMongoDB(ctx context.Context, server string, user string, password string, port int) (db *MongoDB, e error) {
+func NewMongoDB(ctx context.Context, server string, user string, password string, port int, dbName string) (db *MongoDB, e error) {
 	e = nil
 
 	db = new(MongoDB)
+	db.dbName = dbName
 	db.connStr = "mongodb"
 	if port == 0 {
 		db.connStr += "+srv"
@@ -52,8 +54,12 @@ func NewMongoDB(ctx context.Context, server string, user string, password string
 	return
 }
 
-func (m *MongoDB) Collection(dbName string, collectionName string) (col *mongo.Collection) {
-	col = m.client.Database(dbName).Collection(collectionName)
+func (m *MongoDB) Database() (s string) {
+	return m.dbName
+}
+
+func (m *MongoDB) Collection(collectionName string) (col *mongo.Collection) {
+	col = m.client.Database(m.dbName).Collection(collectionName)
 
 	return
 }

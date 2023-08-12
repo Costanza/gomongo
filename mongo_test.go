@@ -21,7 +21,7 @@ func TestNewMongoDB(t *testing.T) {
 	password := ""
 	port := 27017
 
-	db, e := NewMongoDB(ctx, server, user, password, port)
+	db, e := NewMongoDB(ctx, server, user, password, port, "MongoTest")
 	if e == nil {
 		connStr := "mongodb://localhost:27017/"
 		if db.ConnectionString() != connStr {
@@ -39,7 +39,7 @@ func TestNewMongoDBWithSrv(t *testing.T) {
 	password := "123456"
 	port := 0
 
-	db, e := NewMongoDB(ctx, server, user, password, port)
+	db, e := NewMongoDB(ctx, server, user, password, port, "MongoTest")
 	if e != nil {
 		if e.Error() == "error parsing uri: lookup _mongodb._tcp.test.mongodb.net: dnsquery: DNS name does not exist." {
 			connStr := "mongodb+srv://admin:123456@test.mongodb.net"
@@ -197,16 +197,16 @@ func TestSearch(t *testing.T) {
 		idxName, e := repo.CreateIndex(ctx, "my_text_index", "data", "text", false)
 		if e == nil {
 			if idxName == "my_text_index" {
-				tds, e := repo.Search(ctx, "findme")
+				tds, e := repo.TextSearch(ctx, "findme")
 				if e == nil {
 					if len(tds) == 1 {
 						if tds[0].Name == "findme" {
-							tds, e := repo.Search(ctx, "test")
+							tds, e := repo.TextSearch(ctx, "test")
 							if e == nil {
 								if len(tds) == 2 {
-									if tds[0].Name == "test2" && tds[1].Name == "test1" {
+									if tds[0].Name == "test1" && tds[1].Name == "test2" {
 									} else {
-										t.Errorf("testsearch have: %s - %s want: %s - %s", tds[0].Name, tds[1].Name, "test2", "test1")
+										t.Errorf("testsearch have: %s - %s want: %s - %s", tds[0].Name, tds[1].Name, "test1", "test2")
 									}
 								} else {
 									t.Errorf("testsearch have: %d results want: %d", len(tds), 2)
