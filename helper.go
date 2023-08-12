@@ -8,6 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type SortDirection int
@@ -22,15 +23,15 @@ type Helper[T any] struct {
 	collection string
 }
 
-func NewHelper[T any](ctx context.Context, client *MongoDB, coll string) (r *Helper[T]) {
+func NewHelper[T any](ctx context.Context, client *MongoDB, collection string) (r *Helper[T]) {
 	return &Helper[T]{
 		client:     client,
-		collection: coll,
+		collection: collection,
 	}
 }
 
-func (h *Helper[T]) InsertOne(ctx context.Context, collection string, entity T) (id interface{}, e error) {
-	col := h.client.Collection(collection)
+func (h *Helper[T]) InsertOne(ctx context.Context, entity T) (id interface{}, e error) {
+	col := h.client.Collection(h.collection)
 
 	result, e := col.InsertOne(ctx, entity)
 
@@ -41,13 +42,13 @@ func (h *Helper[T]) InsertOne(ctx context.Context, collection string, entity T) 
 	return
 }
 
-func (h *Helper[T]) FindOne(ctx context.Context, collection string, field string, value interface{}) (result *T, e error) {
-	col := h.client.Collection(collection)
+func (h *Helper[T]) FindOne(ctx context.Context, field string, value interface{}) (result *T, e error) {
+	col := h.client.Collection(h.collection)
 
 	var entity T
 	sf := FieldToBSONTag(entity, field)
 
-	if field == "" {
+	if sf == "" {
 		e = fmt.Errorf("could not find struct field %s for entity %s", field, reflect.TypeOf(entity).Name())
 	} else {
 		query := bson.D{
@@ -60,6 +61,26 @@ func (h *Helper[T]) FindOne(ctx context.Context, collection string, field string
 	return &entity, e
 }
 
+func (h *Helper[T]) SaveOne(ctx context.Context, entity *T, field string, value interface{}) (count int64, e error) {
+	col := h.client.Collection(h.collection)
+
+	sf := FieldToBSONTag(*entity, field)
+
+	var result *mongo.UpdateResult
+	if sf == "" {
+		e = fmt.Errorf("could not find struct field %s for entity %s", field, reflect.TypeOf(entity).Name())
+	} else {
+		query := bson.D{
+			primitive.E{Key: sf, Value: value},
+		}
+		opts := options.Replace().SetUpsert(true)
+
+		result, e = col.ReplaceOne(ctx, query, *entity, opts)
+	}
+
+	return result.MatchedCount, e
+}
+
 func (r Helper[T]) DeleteOne(ctx context.Context, field string, value interface{}) (count int64, e error) {
 	col := r.client.Collection(r.collection)
 
@@ -67,7 +88,7 @@ func (r Helper[T]) DeleteOne(ctx context.Context, field string, value interface{
 	sf := FieldToBSONTag(entity, field)
 
 	var result *mongo.DeleteResult
-	if field == "" {
+	if sf == "" {
 		e = fmt.Errorf("could not find struct field %s for entity %s", field, reflect.TypeOf(entity).Name())
 	} else {
 		query := bson.D{
@@ -225,20 +246,6 @@ func (r Helper[T]) DeleteOne(ctx context.Context, field string, value interface{
 // 	result, e := col.InsertMany(ctx, entities)
 
 // 	return result.InsertedIDs, e
-// }
-
-// func (r Helper[T]) Save(ctx context.Context, entity *T, key string, value interface{}) (e error) {
-// 	col := r.client.Collection(r.collection)
-
-// 	query := bson.M{
-// 		key: value,
-// 	}
-
-// 	opts := options.Replace().SetUpsert(true)
-
-// 	_, e = col.ReplaceOne(ctx, query, *entity, opts)
-
-// 	return
 // }
 
 // func (r Helper[T]) DeleteMany(ctx context.Context, key string, value interface{}) (count int64, e error) {
