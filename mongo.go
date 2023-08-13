@@ -48,7 +48,7 @@ func NewMongoDB(ctx context.Context, server string, user string, password string
 	if e == nil {
 		e = db.client.Ping(ctx, nil)
 	} else {
-		fmt.Printf("Error connecting to MongoDB\n")
+		fmt.Printf("error connecting to mongodb\n")
 	}
 
 	return

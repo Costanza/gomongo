@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -30,6 +31,23 @@ func NewHelper[T any](ctx context.Context, client *MongoDB, collection string) (
 	}
 }
 
+func (h Helper[T]) CreateIndex(ctx context.Context, name string, field string, kind string, unique bool) (idxName string, e error) {
+	col := h.client.Collection(h.collection)
+
+	var entity T
+	tag, e := h.entityFieldToBSONTag(entity, field)
+
+	model := mongo.IndexModel{
+
+		Keys:    bson.D{{Key: tag, Value: kind}},
+		Options: options.Index().SetName(name).SetUnique(unique),
+	}
+
+	idxName, e = col.Indexes().CreateOne(ctx, model)
+
+	return
+}
+
 func (h *Helper[T]) InsertOne(ctx context.Context, entity T) (id interface{}, e error) {
 	col := h.client.Collection(h.collection)
 
@@ -42,17 +60,23 @@ func (h *Helper[T]) InsertOne(ctx context.Context, entity T) (id interface{}, e 
 	return
 }
 
+func (h Helper[T]) InsertMany(ctx context.Context, entities []interface{}) (ids []interface{}, e error) {
+	col := h.client.Collection(h.collection)
+
+	result, e := col.InsertMany(ctx, entities)
+
+	return result.InsertedIDs, e
+}
+
 func (h *Helper[T]) FindOne(ctx context.Context, field string, value interface{}) (result *T, e error) {
 	col := h.client.Collection(h.collection)
 
 	var entity T
-	sf := FieldToBSONTag(entity, field)
+	tag, e := h.entityFieldToBSONTag(entity, field)
 
-	if sf == "" {
-		e = fmt.Errorf("could not find struct field %s for entity %s", field, reflect.TypeOf(entity).Name())
-	} else {
+	if e == nil {
 		query := bson.D{
-			primitive.E{Key: sf, Value: value},
+			primitive.E{Key: tag, Value: value},
 		}
 
 		e = col.FindOne(ctx, query).Decode(&entity)
@@ -61,215 +85,222 @@ func (h *Helper[T]) FindOne(ctx context.Context, field string, value interface{}
 	return &entity, e
 }
 
+func (h Helper[T]) FindMany(ctx context.Context, field string, value interface{}, sortField string, sortDir SortDirection) (entities []T, e error) {
+	col := h.client.Collection(h.collection)
+
+	var entity T
+	tag, e := h.entityFieldToBSONTag(entity, field)
+
+	if e == nil {
+		opts := options.Find()
+		if sortField != "" {
+			sortTag, e := h.entityFieldToBSONTag(entity, field)
+			if e == nil {
+				opts.SetSort(bson.D{{sortTag, sortDir}})
+			}
+		}
+
+		query := bson.D{
+			primitive.E{Key: tag, Value: value},
+		}
+
+		cursor, e := col.Find(ctx, query, opts)
+
+		if e == nil {
+			e = cursor.All(ctx, &entities)
+		}
+	}
+
+	return
+}
+
+func (h Helper[T]) FindByDateRange(ctx context.Context, field string, start time.Time, end time.Time, sortDir SortDirection) (entities []T, e error) {
+	col := h.client.Collection(h.collection)
+
+	var entity T
+	tag, e := h.entityFieldToBSONTag(entity, field)
+
+	if e == nil {
+		opts := options.Find().SetSort(bson.D{{tag, sortDir}})
+
+		filter := bson.M{
+			tag: bson.M{
+				"$gte": start,
+				"$lte": end,
+			},
+		}
+
+		cursor, e := col.Find(ctx, filter, opts)
+		if e == nil {
+			e = cursor.All(ctx, &entities)
+		}
+	}
+
+	return
+}
+
 func (h *Helper[T]) SaveOne(ctx context.Context, entity *T, field string, value interface{}) (count int64, e error) {
 	col := h.client.Collection(h.collection)
 
-	sf := FieldToBSONTag(*entity, field)
+	tag, e := h.entityFieldToBSONTag(*entity, field)
 
-	var result *mongo.UpdateResult
-	if sf == "" {
-		e = fmt.Errorf("could not find struct field %s for entity %s", field, reflect.TypeOf(entity).Name())
-	} else {
+	if e == nil {
 		query := bson.D{
-			primitive.E{Key: sf, Value: value},
+			primitive.E{Key: tag, Value: value},
 		}
 		opts := options.Replace().SetUpsert(true)
 
-		result, e = col.ReplaceOne(ctx, query, *entity, opts)
+		result, e := col.ReplaceOne(ctx, query, *entity, opts)
+
+		return result.MatchedCount, e
 	}
 
-	return result.MatchedCount, e
+	return
 }
 
-func (r Helper[T]) DeleteOne(ctx context.Context, field string, value interface{}) (count int64, e error) {
-	col := r.client.Collection(r.collection)
+func (h Helper[T]) DeleteOne(ctx context.Context, field string, value interface{}) (count int64, e error) {
+	col := h.client.Collection(h.collection)
 
 	var entity T
-	sf := FieldToBSONTag(entity, field)
+	tag, e := h.entityFieldToBSONTag(entity, field)
 
-	var result *mongo.DeleteResult
-	if sf == "" {
-		e = fmt.Errorf("could not find struct field %s for entity %s", field, reflect.TypeOf(entity).Name())
-	} else {
+	if e == nil {
 		query := bson.D{
-			primitive.E{Key: sf, Value: value},
+			primitive.E{Key: tag, Value: value},
 		}
 
-		result, e = col.DeleteOne(ctx, query)
+		result, e := col.DeleteOne(ctx, query)
+
+		return result.DeletedCount, e
 	}
 
-	return result.DeletedCount, e
+	return
 }
 
-// func (r Helper[T]) Get(ctx context.Context, key string, value interface{}, sortField string, sortDir SortDirection) (entities []T, e error) {
-// 	col := r.client.Collection(r.collection)
-// 	opts := options.Find()
-// 	if sortField != "" {
-// 		opts.SetSort(bson.D{{sortField, sortDir}})
-// 	}
+func (h Helper[T]) DeleteMany(ctx context.Context, field string, value interface{}) (count int64, e error) {
+	col := h.client.Collection(h.collection)
 
-// 	filter := bson.D{
-// 		primitive.E{Key: key, Value: value},
-// 	}
+	var entity T
+	tag, e := h.entityFieldToBSONTag(entity, field)
 
-// 	cursor, e := col.Find(ctx, filter, opts)
+	if e == nil {
+		query := bson.D{
+			primitive.E{Key: tag, Value: value},
+		}
 
-// 	if e == nil {
-// 		e = cursor.All(ctx, &entities)
-// 	}
+		result, e := col.DeleteMany(ctx, query)
 
-// 	return
-// }
+		return result.DeletedCount, e
+	}
 
-// func (r Helper[T]) GetOne(ctx context.Context, key string, value interface{}) (entity *T, e error) {
-// 	col := r.client.Collection(r.collection)
+	return
+}
 
-// 	filter := bson.D{
-// 		primitive.E{Key: key, Value: value},
-// 	}
+func (h Helper[T]) FindOneAndIncrementField(ctx context.Context, field string, value string, updateField string, increment int64) (entity *T, e error) {
+	col := h.client.Collection(h.collection)
 
-// 	e = col.FindOne(ctx, filter).Decode(&entity)
+	var tag string
+	var ent T
+	tag, e = h.entityFieldToBSONTag(ent, field)
 
-// 	return
-// }
+	if e == nil {
+		query := bson.D{
+			primitive.E{Key: tag, Value: value},
+		}
 
-// func (r Helper[T]) GetByDateRange(ctx context.Context, key string, start time.Time, end time.Time, sortDir SortDirection) (entities []T, e error) {
-// 	col := r.client.Collection(r.collection)
-// 	opts := options.Find().SetSort(bson.D{{key, sortDir}})
+		var uf string
+		uf, e = h.entityFieldToBSONTag(ent, updateField)
 
-// 	filter := bson.M{
-// 		key: bson.M{
-// 			"$gte": start,
-// 			"$lte": end,
-// 		},
-// 	}
+		if e == nil {
+			update := bson.D{
+				primitive.E{Key: "$inc", Value: bson.D{
+					primitive.E{Key: uf, Value: increment},
+				}},
+			}
 
-// 	cursor, e := col.Find(ctx, filter, opts)
-// 	if e == nil {
-// 		e = cursor.All(ctx, &entities)
-// 	}
+			opts := options.FindOneAndUpdate().SetReturnDocument(options.After).SetUpsert(true)
+			e = col.FindOneAndUpdate(ctx, query, update, opts).Decode(&entity)
+		}
+	}
 
-// 	return
-// }
+	return
+}
 
-// func (r Helper[T]) TextSearch(ctx context.Context, term string) (entities []T, e error) {
-// 	col := r.client.Collection(r.collection)
-// 	opts := options.Find().SetSort(bson.D{{"score", bson.D{{"$meta", "textScore"}}}})
+func (h Helper[T]) FindOneAndUpdateField(ctx context.Context, field string, value string, updateField string, updateValue interface{}) (entity *T, e error) {
+	col := h.client.Collection(h.collection)
 
-// 	filter := bson.D{{"$text", bson.D{{"$search", term}}}}
-// 	cursor, e := col.Find(ctx, filter, opts)
+	var tag string
+	var ent T
+	tag, e = h.entityFieldToBSONTag(ent, field)
 
-// 	if e == nil {
-// 		e = cursor.All(ctx, &entities)
-// 	}
+	if e == nil {
+		query := bson.D{
+			primitive.E{Key: tag, Value: value},
+		}
 
-// 	return
-// }
+		var uf string
+		uf, e = h.entityFieldToBSONTag(ent, updateField)
 
-// func (r Helper[T]) FindOneAndIncrementField(ctx context.Context, key string, value string, updateKey string, increment int64) (entity *T, e error) {
-// 	col := r.client.Collection(r.collection)
+		if e == nil {
+			update := bson.D{
+				primitive.E{Key: "$inc", Value: bson.D{
+					primitive.E{Key: uf, Value: updateValue},
+				}},
+			}
 
-// 	filter := bson.D{
-// 		primitive.E{Key: key, Value: value},
-// 	}
+			opts := options.FindOneAndUpdate().SetReturnDocument(options.After).SetUpsert(true)
+			e = col.FindOneAndUpdate(ctx, query, update, opts).Decode(&entity)
+		}
+	}
 
-// 	update := bson.D{
-// 		primitive.E{Key: "$inc", Value: bson.D{
-// 			primitive.E{Key: updateKey, Value: increment},
-// 		}},
-// 	}
+	return
+}
 
-// 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
-// 	opts.SetUpsert(true)
+func (r Helper[T]) entityFieldToBSONTag(entity T, field string) (tag string, e error) {
+	tag = FieldToBSONTag(entity, field)
 
-// 	e = col.FindOneAndUpdate(ctx, filter, update, opts).Decode(&entity)
+	if tag == "" {
+		e = fmt.Errorf("could not find struct field %s for entity %s", field, reflect.TypeOf(entity).Name())
+	}
 
-// 	return
-// }
+	return tag, e
+}
 
-// func (r Helper[T]) FindOneAndUpdateField(ctx context.Context, key string, value string, updateKey string, updateValue interface{}) (entity *T, e error) {
-// 	col := r.client.Collection(r.collection)
+func (h Helper[T]) TextSearch(ctx context.Context, term string) (entities []T, e error) {
+	col := h.client.Collection(h.collection)
 
-// 	filter := bson.D{
-// 		primitive.E{Key: key, Value: value},
-// 	}
+	opts := options.Find().SetSort(bson.D{{"score", bson.D{{"$meta", "textScore"}}}})
 
-// 	update := bson.D{
-// 		primitive.E{Key: "$set", Value: bson.D{
-// 			primitive.E{Key: updateKey, Value: updateValue},
-// 		}},
-// 	}
+	query := bson.D{{"$text", bson.D{{"$search", term}}}}
+	cursor, e := col.Find(ctx, query, opts)
 
-// 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
-// 	opts.SetUpsert(true)
+	if e == nil {
+		e = cursor.All(ctx, &entities)
+	}
 
-// 	e = col.FindOneAndUpdate(ctx, filter, update, opts).Decode(&entity)
+	return
+}
 
-// 	return
-// }
+func (h Helper[T]) Iterate(ctx context.Context, cb func(ctx context.Context, n *T) (e error)) (e error) {
+	col := h.client.Collection(h.collection)
 
-// func (r Helper[T]) Iterate(ctx context.Context, cb func(ctx context.Context, n *T) (e error)) (e error) {
-// 	col := r.client.Collection(r.collection)
+	cursor, err := col.Find(ctx, bson.D{})
+	if err != nil {
+		e = err
+	} else {
+		for cursor.Next(ctx) {
+			var entity T
+			if err := cursor.Decode(&entity); err != nil {
+				e = err
+			} else {
+				e = cb(ctx, &entity)
+			}
 
-// 	cursor, err := col.Find(ctx, bson.D{})
-// 	if err != nil {
-// 		e = err
-// 	} else {
-// 		for cursor.Next(ctx) {
-// 			var entity T
-// 			if err := cursor.Decode(&entity); err != nil {
-// 				e = err
-// 			} else {
-// 				e = cb(ctx, &entity)
-// 			}
+		}
+		if e = cursor.Err(); e != nil {
+			return
+		}
+	}
 
-// 		}
-// 		if err := cursor.Err(); err != nil {
-// 			log.Fatal(err)
-// 		}
-// 	}
-
-// 	return
-// }
-
-// func (r Helper[T]) InsertOne(ctx context.Context, entity T) (id interface{}, e error) {
-// 	col := r.client.Collection(r.collection)
-
-// 	result, e := col.InsertOne(ctx, entity)
-
-// 	return result.InsertedID, e
-// }
-
-// func (r Helper[T]) InsertMany(ctx context.Context, entities []interface{}) (ids []interface{}, e error) {
-// 	col := r.client.Collection(r.collection)
-
-// 	result, e := col.InsertMany(ctx, entities)
-
-// 	return result.InsertedIDs, e
-// }
-
-// func (r Helper[T]) DeleteMany(ctx context.Context, key string, value interface{}) (count int64, e error) {
-// 	col := r.client.Collection(r.collection)
-
-// 	query := bson.M{
-// 		key: value,
-// 	}
-
-// 	result, e := col.DeleteMany(ctx, query)
-
-// 	return result.DeletedCount, e
-// }
-
-// func (r Helper[T]) CreateIndex(ctx context.Context, name string, field string, kind string, unique bool) (idxName string, e error) {
-// 	col := r.client.Collection(r.collection)
-
-// 	model := mongo.IndexModel{
-
-// 		Keys:    bson.D{{Key: field, Value: kind}},
-// 		Options: options.Index().SetName(name).SetUnique(unique),
-// 	}
-
-// 	idxName, e = col.Indexes().CreateOne(ctx, model)
-
-// 	return
-// }
+	return
+}
