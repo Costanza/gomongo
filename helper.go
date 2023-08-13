@@ -31,19 +31,32 @@ func NewHelper[T any](ctx context.Context, client *MongoDB, collection string) (
 	}
 }
 
+func (r Helper[T]) entityFieldToBSONTag(entity T, field string) (tag string, e error) {
+	tag = FieldToBSONTag(entity, field)
+
+	if tag == "" {
+		e = fmt.Errorf("could not find struct field %s for entity %s", field, reflect.TypeOf(entity).Name())
+	}
+
+	return tag, e
+}
+
 func (h Helper[T]) CreateIndex(ctx context.Context, name string, field string, kind string, unique bool) (idxName string, e error) {
 	col := h.client.Collection(h.collection)
 
 	var entity T
-	tag, e := h.entityFieldToBSONTag(entity, field)
+	var tag string
+	tag, e = h.entityFieldToBSONTag(entity, field)
 
-	model := mongo.IndexModel{
+	if e == nil {
+		model := mongo.IndexModel{
 
-		Keys:    bson.D{{Key: tag, Value: kind}},
-		Options: options.Index().SetName(name).SetUnique(unique),
+			Keys:    bson.D{{Key: tag, Value: kind}},
+			Options: options.Index().SetName(name).SetUnique(unique),
+		}
+
+		idxName, e = col.Indexes().CreateOne(ctx, model)
 	}
-
-	idxName, e = col.Indexes().CreateOne(ctx, model)
 
 	return
 }
@@ -72,7 +85,8 @@ func (h *Helper[T]) FindOne(ctx context.Context, field string, value interface{}
 	col := h.client.Collection(h.collection)
 
 	var entity T
-	tag, e := h.entityFieldToBSONTag(entity, field)
+	var tag string
+	tag, e = h.entityFieldToBSONTag(entity, field)
 
 	if e == nil {
 		query := bson.D{
@@ -89,14 +103,15 @@ func (h Helper[T]) FindMany(ctx context.Context, field string, value interface{}
 	col := h.client.Collection(h.collection)
 
 	var entity T
-	tag, e := h.entityFieldToBSONTag(entity, field)
+	var tag string
+	tag, e = h.entityFieldToBSONTag(entity, field)
 
 	if e == nil {
 		opts := options.Find()
 		if sortField != "" {
 			sortTag, e := h.entityFieldToBSONTag(entity, field)
 			if e == nil {
-				opts.SetSort(bson.D{{sortTag, sortDir}})
+				opts.SetSort(bson.D{primitive.E{Key: sortTag, Value: sortDir}})
 			}
 		}
 
@@ -104,7 +119,8 @@ func (h Helper[T]) FindMany(ctx context.Context, field string, value interface{}
 			primitive.E{Key: tag, Value: value},
 		}
 
-		cursor, e := col.Find(ctx, query, opts)
+		var cursor *mongo.Cursor
+		cursor, e = col.Find(ctx, query, opts)
 
 		if e == nil {
 			e = cursor.All(ctx, &entities)
@@ -118,10 +134,11 @@ func (h Helper[T]) FindByDateRange(ctx context.Context, field string, start time
 	col := h.client.Collection(h.collection)
 
 	var entity T
-	tag, e := h.entityFieldToBSONTag(entity, field)
+	var tag string
+	tag, e = h.entityFieldToBSONTag(entity, field)
 
 	if e == nil {
-		opts := options.Find().SetSort(bson.D{{tag, sortDir}})
+		opts := options.Find().SetSort(bson.D{primitive.E{Key: tag, Value: sortDir}})
 
 		filter := bson.M{
 			tag: bson.M{
@@ -130,7 +147,8 @@ func (h Helper[T]) FindByDateRange(ctx context.Context, field string, start time
 			},
 		}
 
-		cursor, e := col.Find(ctx, filter, opts)
+		var cursor *mongo.Cursor
+		cursor, e = col.Find(ctx, filter, opts)
 		if e == nil {
 			e = cursor.All(ctx, &entities)
 		}
@@ -142,7 +160,8 @@ func (h Helper[T]) FindByDateRange(ctx context.Context, field string, start time
 func (h *Helper[T]) SaveOne(ctx context.Context, entity *T, field string, value interface{}) (count int64, e error) {
 	col := h.client.Collection(h.collection)
 
-	tag, e := h.entityFieldToBSONTag(*entity, field)
+	var tag string
+	tag, e = h.entityFieldToBSONTag(*entity, field)
 
 	if e == nil {
 		query := bson.D{
@@ -162,7 +181,8 @@ func (h Helper[T]) DeleteOne(ctx context.Context, field string, value interface{
 	col := h.client.Collection(h.collection)
 
 	var entity T
-	tag, e := h.entityFieldToBSONTag(entity, field)
+	var tag string
+	tag, e = h.entityFieldToBSONTag(entity, field)
 
 	if e == nil {
 		query := bson.D{
@@ -181,7 +201,8 @@ func (h Helper[T]) DeleteMany(ctx context.Context, field string, value interface
 	col := h.client.Collection(h.collection)
 
 	var entity T
-	tag, e := h.entityFieldToBSONTag(entity, field)
+	var tag string
+	tag, e = h.entityFieldToBSONTag(entity, field)
 
 	if e == nil {
 		query := bson.D{
@@ -199,8 +220,8 @@ func (h Helper[T]) DeleteMany(ctx context.Context, field string, value interface
 func (h Helper[T]) FindOneAndIncrementField(ctx context.Context, field string, value string, updateField string, increment int64) (entity *T, e error) {
 	col := h.client.Collection(h.collection)
 
-	var tag string
 	var ent T
+	var tag string
 	tag, e = h.entityFieldToBSONTag(ent, field)
 
 	if e == nil {
@@ -229,8 +250,8 @@ func (h Helper[T]) FindOneAndIncrementField(ctx context.Context, field string, v
 func (h Helper[T]) FindOneAndUpdateField(ctx context.Context, field string, value string, updateField string, updateValue interface{}) (entity *T, e error) {
 	col := h.client.Collection(h.collection)
 
-	var tag string
 	var ent T
+	var tag string
 	tag, e = h.entityFieldToBSONTag(ent, field)
 
 	if e == nil {
@@ -256,16 +277,6 @@ func (h Helper[T]) FindOneAndUpdateField(ctx context.Context, field string, valu
 	return
 }
 
-func (r Helper[T]) entityFieldToBSONTag(entity T, field string) (tag string, e error) {
-	tag = FieldToBSONTag(entity, field)
-
-	if tag == "" {
-		e = fmt.Errorf("could not find struct field %s for entity %s", field, reflect.TypeOf(entity).Name())
-	}
-
-	return tag, e
-}
-
 func (h Helper[T]) TextSearch(ctx context.Context, term string) (entities []T, e error) {
 	col := h.client.Collection(h.collection)
 
@@ -284,22 +295,16 @@ func (h Helper[T]) TextSearch(ctx context.Context, term string) (entities []T, e
 func (h Helper[T]) Iterate(ctx context.Context, cb func(ctx context.Context, n *T) (e error)) (e error) {
 	col := h.client.Collection(h.collection)
 
-	cursor, err := col.Find(ctx, bson.D{})
-	if err != nil {
-		e = err
-	} else {
+	var cursor *mongo.Cursor
+	cursor, e = col.Find(ctx, bson.D{})
+	if e == nil {
 		for cursor.Next(ctx) {
 			var entity T
-			if err := cursor.Decode(&entity); err != nil {
-				e = err
-			} else {
+			if e = cursor.Decode(&entity); e == nil {
 				e = cb(ctx, &entity)
 			}
+		}
 
-		}
-		if e = cursor.Err(); e != nil {
-			return
-		}
 	}
 
 	return
